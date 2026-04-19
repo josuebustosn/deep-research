@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "exa": {
+      "type": "http",
+      "url": "https://mcp.exa.ai/mcp?tools=web_search_exa,web_search_advanced_exa,get_code_context_exa,crawling_exa,company_research_exa,linkedin_search_exa,deep_researcher_start,deep_researcher_check"
+    },
+    "notebooklm-mcp": {
+      "type": "stdio",
+      "command": "notebooklm-mcp",
+      "args": [],
+      "env": {}
+    },
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp"
+    },
+    "papersflow": {
+      "type": "http",
+      "url": "https://doxa.papersflow.ai/mcp"
+    },
+    "firecrawl": {
+      "type": "http",
+      "url": "https://mcp.firecrawl.dev/<TU_FIRECRAWL_API_KEY>/v2/mcp"
+    }
+  }
+}
