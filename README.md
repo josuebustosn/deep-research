@@ -99,7 +99,10 @@ git clone https://github.com/josuebustosn/deep-research.git
 cd deep-research
 ```
 
-### 2. Instalar el CLI de NotebookLM
+### 2. Instalar NotebookLM — el único MCP que requiere instalación local
+
+> [!NOTE]
+> **De los 5 MCPs, solo este se instala localmente.** Los otros 4 (Exa, Context7, Papersflow, Firecrawl) son **HTTP hosted** — viven en servidores remotos. No hay nada que instalar para ellos: solo se configuran como URLs en el `.claude.json` (paso 4). Claude Code habla con ellos por HTTP cuando los necesita.
 
 El paquete `notebooklm-mcp-cli` provee **dos binarios**: `nlm` (para OAuth login) y `notebooklm-mcp` (el servidor MCP que Claude Code habla). Elige uno:
 
@@ -131,7 +134,7 @@ Esto abre Chrome → te pide OAuth con tu cuenta Google → guarda cookies en `~
 > [!WARNING]
 > La sesión **expira con el tiempo sin aviso**. Cuando eso pase, tu Claude detectará el error de auth y te dirá que re-corras `nlm login`. El flujo está documentado en `config/claude-md-additions.md` — es por eso que incluimos ese archivo.
 
-### 4. Configurar los MCPs en `~/.claude.json`
+### 4. Configurar los 5 MCPs en `~/.claude.json`
 
 Abre tu `~/.claude.json` (en Windows: `C:\Users\<usuario>\.claude.json`). Busca la clave `mcpServers` (si no existe, créala en la raíz del JSON). Agrega los 5 MCPs desde `config/mcp-servers.json` de este repo.
 
@@ -140,6 +143,15 @@ Abre tu `~/.claude.json` (en Windows: `C:\Users\<usuario>\.claude.json`). Busca 
 - `<TU_FIRECRAWL_API_KEY>` → tu API key de Firecrawl (la consigues en [firecrawl.dev/app/api-keys](https://firecrawl.dev/app/api-keys))
 
 Exa autentica por OAuth al primer request — no necesitas poner key en la URL. NotebookLM usa las cookies que guardó `nlm login`. Context7 y Papersflow funcionan sin auth.
+
+> [!TIP]
+> **¿Tu Claude está haciendo esto por ti?** Haz merge seguro, no sobrescritura:
+> 1. `Read` `config/mcp-servers.json` de este repo.
+> 2. `Read` `~/.claude.json` del usuario (crea un objeto `{}` vacío si no existe).
+> 3. Si el usuario ya tiene una clave `mcpServers`, **preserva** todos los MCPs previos y **agrega** los 5 de este repo dentro del mismo objeto. No borres nada que ya esté.
+> 4. **Pídele la API key de Firecrawl al usuario** ANTES de escribir el archivo (no dejes `<TU_FIRECRAWL_API_KEY>` en el JSON real).
+> 5. Si el usuario no tiene Firecrawl todavía, ofrécele omitirlo (los otros 4 MCPs funcionan sin él) o esperar a que consiga la key.
+> 6. `Write` el JSON final. Dile al usuario que reinicie Claude Code para que cargue los MCPs nuevos.
 
 **Ejemplo del resultado final en `~/.claude.json`:**
 
