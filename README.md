@@ -4,7 +4,7 @@
 
 **El botón de Research de claude.ai, replicado dentro de Claude Code.**
 
-Dispara Exa Deep Researcher + NotebookLM DeepResearch en paralelo, cross-valida hallazgos entre ambos motores, y persiste todo en tu proyecto — con un solo comando.
+Dispara el Exa Agent + NotebookLM Deep Research en paralelo, cross-valida hallazgos entre ambos motores, y persiste todo en tu proyecto — con un solo comando.
 
 [![Built for Claude Code](https://img.shields.io/badge/Built%20for-Claude%20Code-D97757?style=flat-square)](https://docs.claude.com/en/docs/claude-code/overview)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](./LICENSE)
@@ -16,22 +16,24 @@ Dispara Exa Deep Researcher + NotebookLM DeepResearch en paralelo, cross-valida 
 
 ## ¿Qué es esto?
 
-Un set de **skills + rules + config MCP** para Claude Code que replica la experiencia del botón "Research" de claude.ai (el que visita 50+ fuentes y sintetiza) — pero **dentro de tu terminal**, integrado a tu proyecto, y con cross-validation entre dos motores de research independientes.
+Un set de **skills + rules + config** para Claude Code que replica la experiencia del botón "Research" de claude.ai (el que visita 50+ fuentes y sintetiza) — pero **dentro de tu terminal**, integrado a tu proyecto, y con cross-validation entre dos motores de research independientes.
 
 ```
 Tú:  /deep-research investiga Bifrost vs LiteLLM para producción
      │
      ▼
-  Claude dispara en paralelo ─────┬──▶ Exa research-pro ──┐
-                                  │                        ├──▶ SYNTHESIS.md
-                                  └──▶ NotebookLM deep ────┘    (cross-validated)
+  Claude dispara en paralelo ─────┬──▶ Exa Agent (agent_run) ──┐
+                                  │                             ├──▶ SYNTHESIS.md
+                                  └──▶ NotebookLM deep ─────────┘    (cross-validated)
      │
      ▼
   Persiste 4 archivos en .planning/deep-research/<fecha>-<slug>/
   y te da un resumen de 5 líneas con el veredicto.
 ```
 
-**Por qué dos motores en paralelo:** cada uno tiene carácter distinto — Exa es bueno con GitHub issues, threads de comunidad, y citas directas; NotebookLM es bueno con síntesis narrativa y papers. Correr ambos y sintetizar las convergencias atrapa alucinaciones y expande cobertura. El extra de ~$1.30 USD vale 100x lo que cuesta.
+**Por qué dos motores en paralelo:** cada uno tiene carácter distinto — Exa es bueno con GitHub issues, threads de comunidad, páginas de precios y citas directas; NotebookLM es bueno con síntesis narrativa y papers. Correr ambos y sintetizar las convergencias atrapa alucinaciones y expande cobertura. Una corrida de Exa con `effort=high` cuesta ~$0.50 USD (medido); NotebookLM es gratis.
+
+**Portable por diseño:** la skill detecta qué tiene configurado cada usuario (nombre del servidor MCP de Exa, si hay `EXA_API_KEY`, si está instalado el CLI de NotebookLM) y trabaja con los motores que encuentre. Si falta uno, corre con el otro y lo deja anotado en el reporte.
 
 ---
 
@@ -45,7 +47,7 @@ deep-research/
 ├── rules/
 │   └── context7.md                 ← rule global: siempre leer docs con ctx7
 ├── config/
-│   ├── mcp-servers.json            ← template de los 5 MCPs (placeholders para keys)
+│   ├── mcp-servers.json            ← template de los 4 MCPs (placeholders para keys)
 │   └── claude-md-additions.md      ← snippet a pegar en tu CLAUDE.md global
 └── README.md                       ← este archivo
 ```
@@ -56,6 +58,7 @@ deep-research/
 
 - [Quickstart (para tu Claude)](#quickstart-para-tu-claude)
 - [Instalación manual paso a paso](#instalación-manual-paso-a-paso)
+- [Migrar desde la versión anterior](#migrar-desde-la-versión-anterior)
 - [Arquitectura](#arquitectura)
 - [Cómo usarlo](#cómo-usarlo)
 - [Troubleshooting](#troubleshooting)
@@ -67,7 +70,7 @@ deep-research/
 ## Quickstart (para tu Claude)
 
 > [!TIP]
-> **¿Tu Claude Code está instalando esto por ti?** Si le dijiste "instala este repo", léele este README completo y ejecuta los pasos en orden. Pide al usuario sus API keys **solo cuando llegues al paso 4**. No improvises — los quirks de NotebookLM (paso 5) están documentados porque son trampas reales.
+> **¿Tu Claude Code está instalando esto por ti?** Si le dijiste "instala este repo", léele este README completo y ejecuta los pasos en orden. Pide al usuario sus API keys **solo cuando llegues al paso 4**. No improvises — los quirks de NotebookLM y Exa (pasos 3 y 6) están documentados porque son trampas reales.
 
 **Pre-requisitos que tu sistema necesita:**
 
@@ -75,6 +78,7 @@ deep-research/
 |---|---|---|
 | Claude Code instalado | `claude --version` | [docs.claude.com](https://docs.claude.com/en/docs/claude-code/overview) |
 | Python 3.10+ | `python --version` | [python.org](https://python.org) |
+| `uv` (recomendado) o `pipx` | `uv --version` | [docs.astral.sh/uv](https://docs.astral.sh/uv/) |
 | Node.js 18+ | `node --version` | [nodejs.org](https://nodejs.org) |
 | Git | `git --version` | [git-scm.com](https://git-scm.com) |
 
@@ -82,11 +86,13 @@ deep-research/
 
 | Servicio | Para qué | Obligatorio | Gratis |
 |---|---|---|---|
-| [Exa](https://exa.ai) | Deep research motor #1 | Sí | Trial, después pay-per-use (~$1.30/query deep) |
-| Cuenta Google | NotebookLM (motor #2) | Sí | 100% gratis |
-| [Firecrawl](https://firecrawl.dev) | Scraping/crawling de URLs | Sí | Free tier generoso |
+| [Exa](https://exa.ai) | Deep research motor #1 (Exa Agent) | Recomendado | Créditos de prueba, después pay-per-use (~$0.50 por corrida con `effort=high`) |
+| Cuenta Google | NotebookLM (motor #2) | Recomendado | 100% gratis |
+| [Firecrawl](https://firecrawl.dev) | Scraping/crawling de URLs | No (opcional) | Free tier generoso |
 | [Context7](https://context7.com) | Docs de libraries | No (funciona sin cuenta) | Free tier sin auth |
 | [Papersflow](https://papersflow.ai) | Papers académicos | No (opcional) | Guest mode funciona |
+
+Con uno solo de los dos motores la skill funciona igual, pero pierdes la cross-validation.
 
 ---
 
@@ -99,84 +105,81 @@ git clone https://github.com/josuebustosn/deep-research.git
 cd deep-research
 ```
 
-### 2. Instalar NotebookLM — el único MCP que requiere instalación local
+### 2. Instalar NotebookLM — el CLI `notebooklm` de [notebooklm-py](https://github.com/teng-lin/notebooklm-py)
 
 > [!NOTE]
-> **De los 5 MCPs, solo este se instala localmente.** Los otros 4 (Exa, Context7, Papersflow, Firecrawl) son **HTTP hosted** — viven en servidores remotos. No hay nada que instalar para ellos: solo se configuran como URLs en el `.claude.json` (paso 4). Claude Code habla con ellos por HTTP cuando los necesita.
+> **Es lo único que se instala localmente.** Los MCPs (Exa, Context7, Papersflow, Firecrawl) son **HTTP hosted**: no hay nada que instalar, solo se configuran como URLs (paso 4). NotebookLM se usa a través de un CLI, no de un MCP.
 
-El paquete `notebooklm-mcp-cli` provee **dos binarios**: `nlm` (para OAuth login) y `notebooklm-mcp` (el servidor MCP que Claude Code habla). Elige uno:
+Elige una opción:
 
-**Opción A — con `uv` (recomendado, más rápido):**
+**Opción A — con `uv` (recomendado, entorno aislado):**
 ```bash
-# Instalar uv si no lo tienes: https://docs.astral.sh/uv/
-uv tool install notebooklm-mcp-cli
+uv tool install notebooklm-py
 ```
 
-**Opción B — con `pip`:**
+**Opción B — con `pipx`:**
 ```bash
-pip install notebooklm-mcp-cli
+pipx install notebooklm-py
+```
+
+**Opción C — con `pip`:**
+```bash
+pip install notebooklm-py
 ```
 
 Verificar:
 ```bash
-nlm --version              # debe imprimir: nlm version 0.5.x
-notebooklm-mcp --help      # debe imprimir las flags del MCP
+notebooklm --version       # debe imprimir: NotebookLM CLI, version 0.8.x
 ```
 
 ### 3. Autenticar NotebookLM (una sola vez)
 
 ```bash
-nlm login
+notebooklm login
+notebooklm auth check --test --json
 ```
 
-Esto abre Chrome → te pide OAuth con tu cuenta Google → guarda cookies en `~/.notebooklm-mcp-cli/profiles/default`.
+`login` abre un navegador con un perfil persistente → inicias sesión con tu cuenta Google → guarda la sesión en `~/.notebooklm/profiles/default/`. El `auth check --test` debe devolver `"status": "ok"` y `"token_fetch": true`.
 
 > [!WARNING]
-> La sesión **expira con el tiempo sin aviso**. Cuando eso pase, tu Claude detectará el error de auth y te dirá que re-corras `nlm login`. El flujo está documentado en `config/claude-md-additions.md` — es por eso que incluimos ese archivo.
+> La sesión **expira con el tiempo sin aviso**. Cuando pase, tu Claude lo detecta con `auth check --test`, prueba `notebooklm auth refresh` y, si no alcanza, relanza `notebooklm login` para que completes el login en el navegador. El flujo está documentado en `config/claude-md-additions.md`. Ojo: `notebooklm doctor` **no** sirve para saber si la sesión sigue viva (es un chequeo local).
 
-### 4. Configurar los 5 MCPs en `~/.claude.json`
+### 4. Configurar los MCPs en `~/.claude.json`
 
-Abre tu `~/.claude.json` (en Windows: `C:\Users\<usuario>\.claude.json`). Busca la clave `mcpServers` (si no existe, créala en la raíz del JSON). Agrega los 5 MCPs desde `config/mcp-servers.json` de este repo.
+La forma más segura es con el propio CLI de Claude Code (hace merge, no sobrescribe):
+
+```bash
+claude mcp add --transport http exa "https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa,web_search_advanced_exa,get_code_context_exa,agent_run" -s user
+claude mcp add --transport http context7 https://mcp.context7.com/mcp -s user
+claude mcp add --transport http papersflow https://doxa.papersflow.ai/mcp -s user
+claude mcp add --transport http firecrawl "https://mcp.firecrawl.dev/<TU_FIRECRAWL_API_KEY>/v2/mcp" -s user   # opcional
+```
+
+El template equivalente en JSON está en `config/mcp-servers.json`.
 
 **Campos a reemplazar:**
 
 - `<TU_FIRECRAWL_API_KEY>` → tu API key de Firecrawl (la consigues en [firecrawl.dev/app/api-keys](https://firecrawl.dev/app/api-keys))
 
-Exa autentica por OAuth al primer request — no necesitas poner key en la URL. NotebookLM usa las cookies que guardó `nlm login`. Context7 y Papersflow funcionan sin auth.
+**Exa autentica por OAuth:** la primera vez que Claude intente usarlo, solo verá una herramienta `authenticate`. Claude te pasa un link, autorizas en el navegador y aparecen las herramientas reales (`agent_run`, etc.). Si prefieres API key, créala en [dashboard.exa.ai/api-keys](https://dashboard.exa.ai/api-keys) y agrégala a la URL como `&exaApiKey=<key>`. Ojo: si usas `?tools=...`, **`agent_run` tiene que estar en la lista** — activar herramientas opcionales reemplaza el set por defecto.
+
+Context7 y Papersflow funcionan sin auth.
 
 > [!TIP]
 > **¿Tu Claude está haciendo esto por ti?** Haz merge seguro, no sobrescritura:
-> 1. `Read` `config/mcp-servers.json` de este repo.
-> 2. `Read` `~/.claude.json` del usuario (crea un objeto `{}` vacío si no existe).
-> 3. Si el usuario ya tiene una clave `mcpServers`, **preserva** todos los MCPs previos y **agrega** los 5 de este repo dentro del mismo objeto. No borres nada que ya esté.
-> 4. **Pídele la API key de Firecrawl al usuario** ANTES de escribir el archivo (no dejes `<TU_FIRECRAWL_API_KEY>` en el JSON real).
-> 5. Si el usuario no tiene Firecrawl todavía, ofrécele omitirlo (los otros 4 MCPs funcionan sin él) o esperar a que consiga la key.
-> 6. `Write` el JSON final. Dile al usuario que reinicie Claude Code para que cargue los MCPs nuevos.
+> 1. Prefiere `claude mcp add ... -s user` (hace merge solo). Si tienes que editar el JSON a mano: `Read` `config/mcp-servers.json` de este repo y el `~/.claude.json` del usuario.
+> 2. Si el usuario ya tiene una clave `mcpServers`, **preserva** todos los MCPs previos y **agrega** los de este repo dentro del mismo objeto. No borres nada que ya esté.
+> 3. Si el usuario ya tiene un servidor de Exa con otro nombre, no lo dupliques: solo asegúrate de que `agent_run` esté habilitado.
+> 4. **Pídele la API key de Firecrawl al usuario** ANTES de escribir el archivo (no dejes `<TU_FIRECRAWL_API_KEY>` en el JSON real). Si no la tiene, ofrécele omitirlo — la skill no depende de Firecrawl.
+> 5. Dile al usuario que reinicie Claude Code para que cargue los MCPs nuevos.
 
-**Ejemplo del resultado final en `~/.claude.json`:**
+**Opcional — MCP de NotebookLM.** La skill usa el CLI y no lo necesita, pero si quieres usar NotebookLM como herramientas MCP en otras tareas:
 
-```json
-{
-  "mcpServers": {
-    "exa": {
-      "type": "http",
-      "url": "https://mcp.exa.ai/mcp?tools=web_search_exa,web_search_advanced_exa,get_code_context_exa,crawling_exa,company_research_exa,linkedin_search_exa,deep_researcher_start,deep_researcher_check"
-    },
-    "notebooklm-mcp": {
-      "type": "stdio",
-      "command": "notebooklm-mcp",
-      "args": [],
-      "env": {}
-    },
-    "context7": { "type": "http", "url": "https://mcp.context7.com/mcp" },
-    "papersflow": { "type": "http", "url": "https://doxa.papersflow.ai/mcp" },
-    "firecrawl": {
-      "type": "http",
-      "url": "https://mcp.firecrawl.dev/<TU_FIRECRAWL_API_KEY>/v2/mcp"
-    }
-  }
-}
+```bash
+claude mcp add-json notebooklm '{"type":"stdio","command":"uvx","args":["--from","notebooklm-py[mcp]","notebooklm-mcp"],"env":{"PYTHONUTF8":"1"}}' -s user
 ```
+
+Se lanza con `uvx --from ...` a propósito: el paquete viejo `notebooklm-mcp-cli` instala un ejecutable con el mismo nombre (`notebooklm-mcp`) y, si tienes los dos, no sabes cuál arranca.
 
 ### 5. Copiar skills y rules a tu `~/.claude/`
 
@@ -191,34 +194,47 @@ cp rules/context7.md ~/.claude/rules/
 **PowerShell (Windows):**
 ```powershell
 New-Item -ItemType Directory -Force -Path "$HOME\.claude\skills", "$HOME\.claude\rules" | Out-Null
-Copy-Item -Recurse skills\deep-research "$HOME\.claude\skills\"
-Copy-Item -Recurse skills\find-docs "$HOME\.claude\skills\"
-Copy-Item rules\context7.md "$HOME\.claude\rules\"
+Copy-Item -Recurse -Force skills\deep-research "$HOME\.claude\skills\"
+Copy-Item -Recurse -Force skills\find-docs "$HOME\.claude\skills\"
+Copy-Item -Force rules\context7.md "$HOME\.claude\rules\"
 ```
 
 ### 6. Pegar el snippet en tu CLAUDE.md global
 
 Abre `~/.claude/CLAUDE.md` (créalo si no existe) y **pega al final** el contenido del bloque de `config/claude-md-additions.md` de este repo.
 
-Este snippet le enseña a Claude **3 quirks del MCP de NotebookLM** que, sin ellos, te costarían horas debuggueando auth:
-1. `server_info` **no** sirve como health check (retorna success con cookies expiradas).
-2. Después de `nlm login`, hay que llamar `refresh_auth` manualmente para que el MCP recargue cookies de disco.
-3. El flujo completo de re-auth end-to-end que Claude debe ejecutar sin intervención humana más que el OAuth en browser.
+Este snippet le enseña a Claude los quirks que, sin ellos, te costarían horas debuggeando:
+1. El health check real de NotebookLM es `notebooklm auth check --test --json`; `doctor` y `status` son locales y mienten con la sesión vencida.
+2. El flujo de re-auth end-to-end (`auth refresh` → `login` en background) que Claude ejecuta sin intervención humana más que el login en el navegador.
+3. `PYTHONUTF8=1` en Windows para que los acentos no se corrompan en el JSON.
+4. Exa: el research es `agent_run`, y para seguir una corrida se llama con `runId` (reenviar `query` cobra otra corrida).
 
 ### 7. Verificar que todo corre
 
 Reinicia Claude Code (cierra y abre de nuevo, para que cargue los MCPs). Después, en cualquier proyecto:
 
 ```
-> /deep-research investiga cuál es el mejor MCP de NotebookLM para Claude Code en 2026
+> /deep-research investiga cuál es la mejor forma de integrar NotebookLM con Claude Code en 2026
 ```
 
 Si todo está bien, Claude debería:
 - Detectar la skill `deep-research`
-- Hacer el preflight de NotebookLM auth
+- Detectar los motores disponibles y hacer el preflight de auth de NotebookLM
 - Disparar Exa y NotebookLM en paralelo
 - Persistir 4 archivos (`exa-report.md`, `nlm-report.md`, `SYNTHESIS.md`, `sources.md`) en `.planning/deep-research/<fecha>-<slug>/`
 - Darte un resumen con el veredicto
+
+---
+
+## Migrar desde la versión anterior
+
+La primera versión de este repo usaba el MCP de [`notebooklm-mcp-cli`](https://github.com/jacob-bd/notebooklm-mcp-cli) (`nlm login` + `refresh_auth`) y las herramientas `deep_researcher_start` / `deep_researcher_check` de Exa, que ya no existen. Para migrar:
+
+1. Instala `notebooklm-py` y autentica (pasos 2 y 3).
+2. En tu servidor MCP de Exa, cambia `?tools=` para incluir `agent_run` y quitar `deep_researcher_start`, `deep_researcher_check`, `company_research_exa`, `linkedin_search_exa` y `crawling_exa`. Upstream reemplazó `company_research_exa` y `linkedin_search_exa` por `web_search_advanced_exa`, y `crawling_exa` ya no aparece entre las herramientas documentadas: para leer páginas está `web_fetch_exa`.
+3. Copia de nuevo `skills/deep-research` a `~/.claude/skills/`.
+4. En tu `CLAUDE.md` global, reemplaza la sección vieja de NotebookLM por el snippet nuevo (paso 6).
+5. **No desinstales `notebooklm-mcp-cli` a ciegas:** si otras skills o agentes tuyos usan `mcp__notebooklm-mcp__*`, siguen dependiendo de él. En ese caso, fija su servidor MCP con la ruta absoluta del ejecutable viejo para que no choque con el de notebooklm-py.
 
 ---
 
@@ -227,7 +243,7 @@ Si todo está bien, Claude debería:
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         CLAUDE.md (global)                      │
-│  Instrucciones sobre NotebookLM auth (3 quirks críticos)        │
+│  Quirks de NotebookLM (auth check real, re-auth, UTF-8) y Exa   │
 └────────────────────────────────┬────────────────────────────────┘
                                  │ informa
                                  ▼
@@ -241,28 +257,30 @@ Si todo está bien, Claude debería:
           │ dispara        │ consulta
           ▼                ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                        MCP Servers                              │
-│  ┌─────┐  ┌──────────────┐  ┌──────────┐  ┌──────────┐  ┌────┐  │
-│  │ exa │  │notebooklm-mcp│  │ context7 │  │papersflow│  │ fc │  │
-│  │HTTP │  │    stdio     │  │  HTTP    │  │   HTTP   │  │HTTP│  │
-│  └──┬──┘  └──────┬───────┘  └─────┬────┘  └─────┬────┘  └─┬──┘  │
-└─────┼────────────┼────────────────┼─────────────┼─────────┼─────┘
-      │            │                │             │         │
-      ▼            ▼                ▼             ▼         ▼
-   exa.ai   Google NotebookLM   context7.com  papersflow   firecrawl
-            (via OAuth cookies)               (guest OK)   (API key)
+│               MCP Servers (HTTP)          +   CLI local         │
+│  ┌─────┐  ┌──────────┐  ┌──────────┐  ┌────┐   ┌─────────────┐  │
+│  │ exa │  │ context7 │  │papersflow│  │ fc │   │ notebooklm  │  │
+│  │HTTP │  │  HTTP    │  │   HTTP   │  │HTTP│   │(notebooklm- │  │
+│  └──┬──┘  └─────┬────┘  └─────┬────┘  └─┬──┘   │     py)     │  │
+│     │           │             │         │      └──────┬──────┘  │
+└─────┼───────────┼─────────────┼─────────┼─────────────┼─────────┘
+      ▼           ▼             ▼         ▼             ▼
+   exa.ai    context7.com   papersflow  firecrawl  Google NotebookLM
+  (OAuth o                  (guest OK)  (API key)  (sesión de Google)
+   API key)
 ```
 
 **Flujo de una query de research:**
 
 1. Usuario escribe `/deep-research <pregunta>` (o la skill se dispara proactivamente por keywords como "investiga a fondo").
-2. Claude hace preflight: `mcp__notebooklm-mcp__notebook_list` para verificar auth. Si falla → relanza `nlm login` + `refresh_auth` + re-verifica.
-3. Claude dispara **Exa + NotebookLM en paralelo** (ambos async).
-4. Polling: NotebookLM bloquea server-side hasta 180s (eficiente), Exa retorna status instantáneo.
-5. Al completarse NotebookLM, Claude **re-lee con `compact=false`** (importante — el default trunca 70% del contenido).
-6. Claude sintetiza convergencias y divergencias entre ambos motores.
-7. Persiste 4 archivos + scan del proyecto por referencias al topic (por si hay decisions que revisar).
-8. Resumen tight al usuario con veredicto de 1 línea + paths + cost.
+2. Claude detecta los motores disponibles: busca la herramienta `agent_run` de Exa y el CLI `notebooklm`.
+3. Preflight de NotebookLM: `notebooklm auth check --test --json`. Si falla → `auth refresh` → `login` en background → re-verifica.
+4. Claude dispara **Exa + NotebookLM en paralelo** (ambos async): `agent_run` con la query estructurada, y `notebooklm source add-research --mode deep --no-wait` + `research wait` en background.
+5. Polling: Exa se consulta con `runId` hasta `outputReady`; NotebookLM avisa solo cuando termina.
+6. Claude baja el reporte completo de NotebookLM con `research status --json` (con `PYTHONUTF8=1`).
+7. Claude sintetiza convergencias y divergencias entre ambos motores.
+8. Persiste 4 archivos + scan del proyecto por referencias al topic (por si hay decisions que revisar).
+9. Resumen tight al usuario con veredicto de 1 línea + paths + cost.
 
 ---
 
@@ -292,8 +310,8 @@ La skill se dispara automáticamente con cualquiera de estos:
 | `--source=nlm` | Solo NotebookLM (si quieres costo $0) |
 | `--source=papers` | Agrega papersflow (académico) |
 | `--source=all` | Exa + NLM + papers + context7 |
-| `--mode=fast` | NLM fast mode (30s, 10 fuentes) |
-| `--model=exa-research` | Exa balanced en vez de pro (más barato) |
+| `--mode=fast` | NLM fast mode (~30s, ~10 fuentes) |
+| `--effort=<nivel>` | Esfuerzo del Exa Agent: `minimal`, `low`, `medium`, `high` (default), `xhigh` |
 | `--no-persist` | No escribe archivos, solo resumen inline |
 | `--slug=<nombre>` | Override del slug auto-generado |
 
@@ -309,44 +327,62 @@ La skill se dispara automáticamente con cualquiera de estos:
 ## Troubleshooting
 
 <details>
-<summary><b>NotebookLM devuelve "Authentication expired" aunque acabo de hacer login</b></summary>
+<summary><b>NotebookLM devuelve "Authentication expired or invalid"</b></summary>
 
-El MCP cachea credenciales en memoria al arrancar y **no** las recarga de disco. Después de `nlm login`, tienes que llamar:
+1. `notebooklm auth refresh` (rápido, sin navegador).
+2. Si sigue fallando: `notebooklm login` y completa el login en la ventana que se abre.
+3. Verifica con `notebooklm auth check --test --json` (debe dar `"status": "ok"` y `"token_fetch": true`).
 
+No te fíes de `notebooklm doctor`: es un chequeo local y puede decir "All checks passed" con la sesión vencida.
+
+</details>
+
+<details>
+<summary><b>El reporte de NotebookLM sale con caracteres raros (`�`) en vez de acentos</b></summary>
+
+Es Windows escribiendo el JSON con la página de códigos de la consola. Corre las llamadas con `PYTHONUTF8=1` delante, por ejemplo:
+
+```bash
+PYTHONUTF8=1 notebooklm research status -n <NOTEBOOK_ID> --json > nlm-raw.json
 ```
-mcp__notebooklm-mcp__refresh_auth
-```
 
-Sin eso, sigue usando las cookies viejas. Este es el quirk más común.
+La skill ya lo hace; si lo ves corrupto, tu copia de la skill está desactualizada.
 
 </details>
 
 <details>
-<summary><b>El reporte de NotebookLM viene truncado / muy corto</b></summary>
+<summary><b>La investigación de NotebookLM "termina" a los 5 minutos sin fuentes importadas</b></summary>
 
-`research_status` default es `compact=true`. Una vez que el status es `completed`, tienes que relamar con `compact=false` para pull del reporte completo. Skipping this pierde 70%+ del contenido.
-
-El skill `deep-research/SKILL.md` de este repo ya maneja esto — si lo ves truncado es porque tu versión del skill está desactualizada o alguien lo modificó.
+`notebooklm research wait` tiene un timeout por defecto de 300 s. El modo deep a veces tarda más, y si el CLI se rinde antes, no importa nada y la web queda con un modal de "Add sources?". Usa `--timeout 1800`.
 
 </details>
 
 <details>
-<summary><b>Exa retorna "quota exceeded" o "trial ended"</b></summary>
+<summary><b>Solo veo una herramienta `authenticate` de Exa (no aparece `agent_run`)</b></summary>
 
-Tu trial de Exa se acabó. Opciones:
-1. Agregar payment en [exa.ai/settings/billing](https://exa.ai/settings/billing) — pay-per-use, research-pro son ~$1.30/query
-2. Usar `--source=nlm` para correr solo NotebookLM (gratis)
+Falta el OAuth del MCP hosted. Claude llama `authenticate` y te pasa un link: ábrelo **de inmediato** (la escucha del callback en `localhost` dura poco; un link viejo falla sin avisar). Si al autorizar el navegador termina en error de conexión, copia la URL completa de la barra de direcciones (`http://localhost:<puerto>/callback?code=...`) y pásasela a Claude para que llame `complete_authentication`.
+
+Si ya autenticaste y aun así no aparece `agent_run`, revisa que esté en el `?tools=` de tu URL de Exa.
 
 </details>
 
 <details>
-<summary><b>notebook_list retorna success pero research_start falla</b></summary>
+<summary><b>Exa retorna "quota exceeded", 402 o 429</b></summary>
 
-Muy raro. Verifica:
-- Que tu cuenta Google tiene acceso a NotebookLM (normalmente sí, pero en algunos dominios corporativos está bloqueado)
-- Que no tienes 2FA forzado por una extensión que bloquea el OAuth headless
+- Sin créditos: agrega un método de pago en el [dashboard de Exa](https://dashboard.exa.ai) (pay-per-use; una corrida `effort=high` ronda $0.50).
+- 429 en la Agent API = límite de corridas concurrentes. Espera a que termine la anterior.
+- Mientras tanto, usa `--source=nlm` para correr solo NotebookLM (gratis).
 
-Fallback: abre [notebooklm.google.com](https://notebooklm.google.com) en tu browser manualmente y verifica que funciona. Si ahí funciona pero el MCP no, regenera cookies con `nlm login`.
+</details>
+
+<details>
+<summary><b>Tengo dos `notebooklm-mcp` y no sé cuál arranca</b></summary>
+
+`notebooklm-py[mcp]` y el paquete viejo `notebooklm-mcp-cli` instalan un ejecutable con el mismo nombre. La skill no se ve afectada (usa el CLI `notebooklm`), pero para tus servidores MCP:
+- notebooklm-py: lánzalo con `uvx --from "notebooklm-py[mcp]" notebooklm-mcp`.
+- Legado: si lo sigues usando, fija la ruta absoluta del ejecutable viejo en su `command`.
+
+Para ver cuál tienes: `which -a notebooklm-mcp` (o `where notebooklm-mcp` en Windows) y `notebooklm-mcp --help` de cada uno.
 
 </details>
 
@@ -362,11 +398,10 @@ Fallback: abre [notebooklm.google.com](https://notebooklm.google.com) en tu brow
 <details>
 <summary><b>Los MCPs no aparecen en la lista de tools disponibles</b></summary>
 
-- Verifica tu `~/.claude.json` es JSON válido (usa `jq . ~/.claude.json` o similar).
+- Corre `claude mcp list` para ver el estado de cada MCP y `claude mcp get <nombre>` para el detalle.
+- Verifica que tu `~/.claude.json` es JSON válido.
 - Reinicia Claude Code.
-- Corre `claude mcp list` (si el comando existe en tu versión) para ver el estado de cada MCP.
-- Para los HTTP: prueba `curl <url>` — si retorna HTML de landing, el endpoint está vivo.
-- Para `notebooklm-mcp` stdio: corre `notebooklm-mcp --help` directo en terminal. Si falla, reinstala con `uv tool install --reinstall notebooklm-mcp-cli`.
+- Para los HTTP: prueba `curl <url>` — si responde, el endpoint está vivo.
 
 </details>
 
@@ -380,7 +415,11 @@ Fallback: abre [notebooklm.google.com](https://notebooklm.google.com) en tu brow
 - Context7: **$0** en tier sin auth.
 - Papersflow: **$0** en guest mode.
 - Firecrawl: **$0** en free tier (suficiente para uso personal).
-- Exa: **trial gratis**, después ~$1.30 por query deep-research-pro. Si usas `--source=nlm` queda todo gratis, pero pierdes el cross-validation.
+- Exa: créditos de prueba, después pay-per-use. Una corrida del Exa Agent con `effort=high` costó **$0.50** en la prueba de referencia (60 búsquedas). Si usas `--source=nlm` queda todo gratis, pero pierdes el cross-validation.
+
+**¿Por qué NotebookLM por CLI y no por MCP?**
+
+El CLI de notebooklm-py funciona en la misma sesión sin reiniciar Claude Code, no suma decenas de herramientas al contexto, y no choca con el ejecutable del paquete viejo. El MCP de notebooklm-py es una capa delgada sobre la misma lógica, así que no pierdes capacidad: si lo quieres para otras tareas, está documentado en el paso 4.
 
 **¿Por qué no usar solo el `WebSearch` nativo de Claude Code?**
 
@@ -392,7 +431,7 @@ Cross-validation atrapa alucinaciones. Si Exa y NotebookLM dicen lo mismo con fu
 
 **¿Funciona en Windows, macOS, Linux?**
 
-Sí, los tres. `notebooklm-mcp-cli` es Python, funciona cross-platform. Los MCPs HTTP obviamente son agnósticos al OS. El paso manual de copiar skills a `~/.claude/` tiene comandos para bash y PowerShell en [Instalación](#instalación-manual-paso-a-paso).
+Sí, los tres. `notebooklm-py` es Python y funciona cross-platform; en Windows la skill usa `PYTHONUTF8=1` para evitar problemas de encoding. Los MCPs HTTP obviamente son agnósticos al OS. El paso manual de copiar skills a `~/.claude/` tiene comandos para bash y PowerShell en [Instalación](#instalación-manual-paso-a-paso).
 
 **¿Puedo customizar las skills?**
 
@@ -407,8 +446,8 @@ No. Es complementario. GSD es un framework de planeación de proyectos. `deep-re
 ## Créditos
 
 - **Inspirado en** el botón "Research" de [claude.ai](https://claude.ai) — este setup lo replica dentro de Claude Code.
-- **NotebookLM MCP:** [jacob-bd/notebooklm-mcp-cli](https://github.com/jacob-bd/notebooklm-mcp-cli) — los binarios `nlm` y `notebooklm-mcp`.
-- **Exa Deep Researcher:** [exa.ai](https://exa.ai)
+- **NotebookLM:** [teng-lin/notebooklm-py](https://github.com/teng-lin/notebooklm-py) — CLI `notebooklm` (y MCP opcional). La primera versión de este repo usaba [jacob-bd/notebooklm-mcp-cli](https://github.com/jacob-bd/notebooklm-mcp-cli).
+- **Exa Agent:** [exa.ai](https://exa.ai) — [Agent API](https://exa.ai/docs/reference/agent-api/overview) / MCP [`exa-labs/exa-mcp-server`](https://github.com/exa-labs/exa-mcp-server)
 - **Context7:** [context7.com](https://context7.com)
 - **Firecrawl:** [firecrawl.dev](https://firecrawl.dev)
 - **Papersflow:** [papersflow.ai](https://papersflow.ai)

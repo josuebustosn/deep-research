@@ -2,11 +2,11 @@
 name: deep-research
 description: >-
   Multi-engine deep research orchestrator that replicates the claude.ai "Research"
-  experience inside Claude Code. Fires Exa Deep Researcher and NotebookLM DeepResearch
-  in parallel (with optional papersflow for academic queries and context7 for library
-  docs), polls async, pulls full reports, writes a project-relevant SYNTHESIS.md
-  cross-validated between engines, and auto-persists outputs to
-  .planning/deep-research/YYYY-MM-DD-<slug>/.
+  experience inside Claude Code. Fires the Exa Agent (MCP tool `agent_run`) and
+  NotebookLM Deep Research (via the `notebooklm-py` CLI) in parallel (with optional
+  papersflow for academic queries and context7 for library docs), polls async, pulls
+  full reports, writes a project-relevant SYNTHESIS.md cross-validated between engines,
+  and auto-persists outputs to .planning/deep-research/YYYY-MM-DD-<slug>/.
 
   Use this skill whenever the user says "deep research", "investigación profunda",
   "investigación exhaustiva", "research exhaustivo", "investiga a fondo",
@@ -31,20 +31,20 @@ Multi-engine deep research orchestrator. You are the conductor — the engines d
 
 ## Why this exists
 
-Claude.ai has a "Research" button that autonomously visits 50+ sources, synthesizes, and returns a structured report. Claude Code has the same underlying capability distributed across separate MCP tools (Exa, NotebookLM, papersflow, context7) — but without orchestration, most users never hit it.
+Claude.ai has a "Research" button that autonomously visits 50+ sources, synthesizes, and returns a structured report. Claude Code has the same underlying capability distributed across separate tools (the Exa MCP, the `notebooklm-py` CLI, papersflow, context7) — but without orchestration, most users never hit it.
 
 Each engine alone returns useful output. **Running two in parallel and synthesizing the convergences is where the 10x lives** — cross-validation catches hallucinations, complementary coverage expands source diversity, and divergences reveal where the topic is genuinely contested.
 
 Per-engine character (matters for dispatch):
 
-- **Exa `research-pro`** — strong on GitHub issues, community threads, provider docs, specific URLs. Returns structured tables with direct citations. Best when the user wants "what's the evidence?"
+- **Exa Agent (`agent_run`)** — strong on GitHub issues, community threads, provider docs, pricing pages, specific URLs. Returns structured tables with direct citations (`grounding`). Best when the user wants "what's the evidence?"
 - **NotebookLM `deep`** — strong on narrative synthesis, theoretical mechanisms, academic papers, benchmark numbers, *why* something happens. Returns analyst-style long-form. Best when the user wants "help me understand?"
 - **papersflow** — academic papers only. Narrow but deep.
 - **context7** — official library docs. For API specifics, not research.
 
 ## Engine dispatch
 
-**Default for any "deep research" request:** Exa `research-pro` + NotebookLM `deep` in parallel. Extra cost (~$1.30) is trivial vs. the value of cross-validation.
+**Default for any "deep research" request:** Exa `agent_run` (`effort=high`) + NotebookLM `deep` in parallel. Extra cost (Exa ≈ $0.50 USD per run at `effort=high`, measured; NotebookLM $0) is trivial vs. the value of cross-validation.
 
 Override or expand based on query type:
 
@@ -54,25 +54,44 @@ Override or expand based on query type:
 | Specific library/framework/SDK name (React, Next.js, Django, AWS Lambda...) | Try context7 first via find-docs; fallback to default if insufficient |
 | "benchmark", "SOTA", "compare models", "which is best", "landscape" | Default (the bread-and-butter case) |
 | "community reports", "Reddit discussions", "production experience", "real-world issues" | Default — but Exa is primary (better GitHub issues coverage) |
-| "market", "pricing", "providers", "competitive analysis" | Default + consider Exa's `company_research_exa` |
-| Query mentions a specific person/founder/company | Default + consider Exa's `linkedin_search_exa` |
+| "market", "pricing", "providers", "competitive analysis" | Default (consider `effort=xhigh`) + Exa's `web_search_advanced_exa` with category filters for targeted company lookups |
+| Query mentions a specific person/founder/company | Default + Exa's `web_search_advanced_exa` (people/company categories) |
+
+`company_research_exa`, `linkedin_search_exa` and `deep_search_exa` were deprecated upstream and replaced by `web_search_advanced_exa`. The old `deep_researcher_start` / `deep_researcher_check` tools no longer exist — the research product is now the Exa Agent (`agent_run`).
 
 If the user provides a flag like `--source=exa`, `--source=nlm`, `--source=all`, honor it.
 
 ## Preflight
 
+### 0. Engine discovery (every user's setup is different — detect, don't assume)
+
+Tool and server names depend on each user's config. Detect what's available before dispatching:
+
+- **Exa (preferred: MCP).** Run `ToolSearch` with the query `agent_run`. The tool is named `mcp__<server-name>__agent_run` (usually `mcp__exa__agent_run`). Load it with `ToolSearch select:<exact name>` before calling it.
+  - **Only an `authenticate` tool shows up for the Exa server** → the hosted MCP (`https://mcp.exa.ai/mcp`) needs OAuth. Call its `authenticate` tool and give the URL to the user **immediately** — the localhost callback listener is short-lived and a stale link silently fails. If the browser lands on a connection error after authorizing, ask the user to paste the full `http://localhost:<port>/callback?...` URL from the address bar and pass it to the server's `complete_authentication` tool. The real tools appear automatically once auth completes.
+  - **No Exa MCP, but `EXA_API_KEY` is set** → use the REST fallback (see "Launching and polling").
+  - **Neither** → skip Exa, run NotebookLM only, and note the missing engine in SYNTHESIS.md.
+  - If the user's MCP URL restricts tools with `?tools=...`, `agent_run` must be in that list (enabling optional tools replaces the default set).
+- **NotebookLM (via the `notebooklm-py` CLI).** Run `command -v notebooklm && notebooklm --version`. If missing, offer to install it (`uv tool install notebooklm-py`, `pipx install notebooklm-py`, or `pip install notebooklm-py`) and then run the auth flow below. If the user declines, fall back to `--source=exa`.
+  - This skill does **not** use the legacy `notebooklm-mcp-cli` package (`nlm`, `mcp__notebooklm-mcp__*`). Don't call those tools here even if they're configured.
+
 ### 1. NotebookLM auth check (CRITICAL — don't skip)
 
-Call `mcp__notebooklm-mcp__notebook_list` to verify auth. **Do NOT use `server_info`** — that's a local call that returns success even with expired cookies and will silently pass auth check.
+```bash
+notebooklm auth check --test --json
+```
 
-If `notebook_list` returns an auth error:
+Require **both** `"status": "ok"` and `"checks": {"token_fetch": true}`. This is the only check that makes a network call and proves the cookies still authenticate against Google.
 
-1. Tell the user: "La sesión de NotebookLM expiró. Voy a relanzar el login — se abrirá Chrome."
-2. Launch `nlm login` via Bash with `run_in_background=true`
-3. Wait for user confirmation that they completed the OAuth flow in the browser
-4. Call `mcp__notebooklm-mcp__refresh_auth` — **this step is mandatory**. The MCP caches credentials in memory at startup and won't auto-reload from disk after `nlm login` writes new tokens. Without `refresh_auth`, `notebook_list` keeps returning "Authentication expired" even though cookies are valid on disk.
-5. Re-verify with `notebook_list`
-6. Only then proceed with research
+**Do NOT use `notebooklm doctor` or `notebooklm status` as an auth check** — both are local. `doctor` can print "All checks passed" while the session is expired (observed 2026-09-18: `doctor` passed, then `notebooklm list` failed with "Authentication expired or invalid").
+
+If the check fails:
+
+1. Try the cheap path first: `notebooklm auth refresh` (server-side cookie refresh), then re-run the check.
+2. If that fails too, tell the user: "La sesión de NotebookLM expiró. Voy a relanzar el login — se abrirá una ventana del navegador."
+3. Launch `notebooklm login` via Bash with `run_in_background=true`. It opens a browser with a persistent profile and waits up to 5 minutes; the only human step is completing the Google sign-in. It exits by itself once login is detected (`Authentication saved to ...storage_state.json`).
+4. Re-run `notebooklm auth check --test --json`. No extra "reload" step is needed — the CLI reads the stored session on every call.
+5. Only then proceed with research.
 
 If the user declines to re-auth, fall back to `--source=exa` and proceed with a single engine. Note the missing engine in SYNTHESIS.md.
 
@@ -100,9 +119,9 @@ Use `Glob` to check for `.planning/` in the current working directory. If found,
 
 Engines respond better to different prompt styles. Adapt the user's intent into the right format for each.
 
-### Exa `deep_researcher_start`
+### Exa `agent_run`
 
-Exa likes **structured, explicit instructions**. Template:
+Exa likes **structured, explicit instructions**. Pass this template as `query`:
 
 ```
 <THE RESEARCH QUESTION IN ONE LINE>
@@ -125,9 +144,12 @@ OUTPUT FORMAT: <describe the ideal structure — table by item with columns X/Y/
 synthesis with ranking, concrete evidence bullets>
 ```
 
-Use `model=exa-research-pro` by default. Fall back to `exa-research` (balanced, 15-45s) if the user wants faster/cheaper, or `exa-research-fast` for simple queries.
+Other parameters:
+- `systemPrompt` — persona and ground rules (e.g., "cite a URL for every claim, prefer sources from the last 12 months, say so when a price isn't found").
+- `effort` — `high` by default. `xhigh` for broad landscapes / many providers; `medium` for narrow questions. (The REST API also offers `max` behind the beta header `agent-max-effort-2026-07-27`; don't use it by default.)
+- `outputSchema` — optional JSON Schema when you need a machine-readable table.
 
-### NotebookLM `research_start`
+### NotebookLM (`notebooklm source add-research`)
 
 NotebookLM prefers **narrative, exploratory queries** — write like you're briefing an analyst. Single flowing question with sub-points baked in. Example:
 
@@ -137,11 +159,13 @@ Which <things to compare> support <capability>, and why? Evaluate specifically
 Critical question: <the "why" question that forces synthesis>.
 ```
 
-Use `mode=deep` (5 min, 40 sources, web only) by default. Use `mode=fast` only when the user explicitly needs it in 30s.
+Write the query to `<workspace>/nlm-query.md` and pass it with `--prompt-file` (long multi-line prompts break shell quoting).
 
-Use `source=web` unless the research is against Google Drive sources the user has configured.
+Use `--mode deep` (~40–50 sources, web only) by default. Use `--mode fast` only when the user explicitly needs it in ~30s.
 
-Title the notebook descriptively: `<Project Name> - <Topic> <Q/Year>`. NotebookLM creates a new notebook per research — the title helps the user find it later in notebooklm.google.com.
+Use `--from web` (the default) unless the research is against Google Drive sources the user has configured.
+
+Title the notebook descriptively: `<Project Name> - <Topic> <Q/Year>`. Each research gets its own notebook — the title helps the user find it later in notebooklm.google.com.
 
 ### papersflow
 
@@ -155,20 +179,60 @@ Only for library API / framework documentation. Not general research.
 
 **Launch in a single message with parallel tool calls.** All engines are async — don't wait for one before starting the next.
 
+### Launch
+
+- **Exa (MCP):** call `agent_run` with `query`, `systemPrompt` and `effort`. It returns an `id` (`agent_run_...`) and usually `status: "running"`.
+- **NotebookLM:** each Bash call is a fresh shell, so capture the notebook ID from the output and reuse it literally in later calls.
+
+  ```bash
+  export PYTHONUTF8=1
+  notebooklm create "<Project> - <Topic> <Q/Year>" --json          # → .notebook.id
+  notebooklm source add-research --prompt-file "<workspace>/nlm-query.md" \
+    --mode deep --no-wait -n <NOTEBOOK_ID> --json                   # → status "started"
+  ```
+
+  Then, in a **separate** Bash call with `run_in_background=true`:
+
+  ```bash
+  PYTHONUTF8=1 notebooklm research wait -n <NOTEBOOK_ID> --timeout 1800 --import-all --cited-only --json
+  ```
+
+- **Exa (REST fallback, only when there's no MCP and `EXA_API_KEY` is set):**
+
+  ```bash
+  curl -s -X POST https://api.exa.ai/agent/runs -H "x-api-key: $EXA_API_KEY" \
+    -H "Content-Type: application/json" -d @<workspace>/exa-request.json   # {"query": ..., "effort": "high"}
+  ```
+
 ### Polling strategy
 
-- **Exa:** `deep_researcher_check` returns instantly with current status. Poll every ~40 seconds (inside the 5-min prompt cache window). Research-pro takes 45s to 3 min typically.
-- **NotebookLM:** `research_status` with `max_wait=180` blocks server-side for up to 3 minutes polling internally — this is MORE efficient than local polling, since it holds the connection open. In `deep` mode, the task_id may change partway through the run — always pass `query` as fallback for task matching per the MCP docs.
-- **Ideal pattern:** fire both checks in the same message. NLM blocks up to 180s; Exa returns instant status. If Exa not done when NLM returns, do another pair.
+- **Exa (MCP):** call `agent_run` again with **only** `runId` — never resend `query`, that starts a new paid run. Keep calling every 1–2 minutes until `outputReady: true`. The final payload has `output.text` (the report), `output.grounding[].citations` (sources), `usage.searches` and `costDollars.total`. Reference run (2026-09-18, `effort=high`): ~10–15 min, 60 searches, $0.50.
+- **Exa (REST):** `GET https://api.exa.ai/agent/runs/<id>` every few seconds until `status` is `completed`, `failed` or `cancelled`.
+- **NotebookLM:** the background `research wait` notifies you when it finishes — don't poll in a loop. Reference run (2026-09-18, `--mode deep`): ~6 min, 54 sources found, 30 cited sources imported.
+- **Ideal pattern:** launch both, keep working (or talking with the user) while they run, check Exa with `runId` whenever you're back, and pull the NotebookLM report when its background task completes.
 
-### CRITICAL: compact mode trap
+### Pull the full NotebookLM report
 
-`research_status` defaults to `compact=true`, which **truncates the report to the first few hundred characters**. Once status is `completed`, call it again with `compact=false` to pull the full report. Skipping this loses 70%+ of the content silently and is the most common way to undervalue NotebookLM.
+When `research wait` completes, write a clean JSON with the full report:
+
+```bash
+PYTHONUTF8=1 notebooklm research status -n <NOTEBOOK_ID> --json > "<workspace>/nlm-raw.json"
+```
+
+Keys: `task_id`, `status`, `query`, `summary`, `report` (the full markdown report, typically 20–40k chars), `sources[]` (`url`, `title`, `result_type`, `report_markdown`), `tasks`. Build `nlm-report.md` from `report` + `sources`.
+
+### CRITICAL: notebooklm-py traps
+
+1. **Encoding.** On Windows, without `PYTHONUTF8=1` the CLI writes JSON through the console code page and every accented character becomes `�` — the report is silently corrupted. Always prefix NotebookLM calls that produce `--json` with `PYTHONUTF8=1` (harmless on macOS/Linux).
+2. **Timeout.** `research wait` defaults to `--timeout 300`, which is too short for deep mode. If it gives up early, nothing gets imported and the web UI is left showing an "Add sources?" modal. Use `--timeout 1800`.
+3. **Blocking.** `source add-research` without `--no-wait` blocks the whole call. Always `--no-wait` + a separate background `research wait`.
+4. **Auth checks.** `doctor` / `status` are local (see Preflight 1).
+5. **Binary name collision (only if you also use MCP servers).** Both `notebooklm-py[mcp]` and the legacy `notebooklm-mcp-cli` install an executable named `notebooklm-mcp`. This skill uses the `notebooklm` CLI, so it isn't affected. If you configure the notebooklm-py MCP server, launch it unambiguously with `uvx --from "notebooklm-py[mcp]" notebooklm-mcp`.
 
 ### Timeout handling
 
-- Exa >5 min: likely stuck. Decide with user whether to proceed with partial or abort.
-- NotebookLM deep >8 min: check `notebooklm.google.com/notebook/<notebook_id>` manually — occasionally the web UI finishes while the API hangs. User can copy-paste as fallback.
+- Exa still running after ~25 min: ask the user whether to keep waiting or cancel. Cancelling is only exposed on the REST API (`POST /agent/runs/<id>/cancel`) and usage accrued so far is still billed.
+- NotebookLM `research wait` times out: run `notebooklm research status -n <NOTEBOOK_ID> --json`; if it's still in progress, relaunch the background wait. Occasionally the web UI finishes while the API lags — the user can check `https://notebooklm.google.com/notebook/<NOTEBOOK_ID>` and copy-paste as fallback.
 
 ## Persistence
 
@@ -179,30 +243,29 @@ Write four files to `<workspace>/<date>-<slug>/`:
 Header block:
 
 ```markdown
-# Exa research-pro Report — <Title>
+# Exa Agent Report — <Title>
 
-**Engine:** Exa Deep Researcher (`<model>`)
-**Research ID:** <researchId>
+**Engine:** Exa Agent (`agent_run`, effort=<effort>)
+**Run ID:** <agent_run_...>
 **Date:** <YYYY-MM-DD>
 **Duration:** ~<N> minutes
-**Cost:** $<X.XX> USD
-**Pages browsed:** <N>
-**Searches performed:** <N>
-**Citations:** <N>
+**Cost:** $<costDollars.total> USD
+**Searches performed:** <usage.searches>
+**Citations:** <N from output.grounding>
 
 ## Query
-<the full instructions block sent to Exa>
+<the full query sent to Exa, plus the systemPrompt>
 
 ## Report
-<the raw report text>
+<output.text>
 
 ## Citations
-<numbered list of all URLs with titles>
+<numbered list of all URLs with titles from output.grounding>
 ```
 
 ### 2. `nlm-report.md` — raw NotebookLM output
 
-Same header style. Include `Notebook URL: https://notebooklm.google.com/notebook/<id>` so the user can inspect sources in the UI.
+Same header style. Include `Notebook URL: https://notebooklm.google.com/notebook/<id>` so the user can inspect sources in the UI, plus the task ID and the number of sources found/imported.
 
 ### 3. `SYNTHESIS.md` — project-relevant distillation
 
@@ -212,7 +275,7 @@ Same header style. Include `Notebook URL: https://notebooklm.google.com/notebook
 # Synthesis — <Topic> (<date>)
 
 **Investigación:** <one-line question>
-**Engines:** Exa <model> (<N> sources, $<cost>) + NotebookLM <mode> (<N> sources, free)
+**Engines:** Exa agent_run effort=<effort> (<N> searches, $<cost>) + NotebookLM deep (<N> sources, free)
 **Triggered by:** <what prompted this — blocker, discussion, decision point>
 **Status:** <one of: HIGH CONFIDENCE / MIXED / DIVERGENT / INCOMPLETE>
 
@@ -299,7 +362,7 @@ After persistence, give a tight summary:
 
 1. **One-line verdict** — the most important finding, not a hedge
 2. **Files written** (absolute paths for clickability)
-3. **Cost** (Exa $ + NLM $0)
+3. **Cost** (Exa `costDollars.total` + NLM $0)
 4. **Decisions that may need revisiting** (surface from project impact scan)
 5. **Ask:** "¿Quieres que actualice los archivos del proyecto con los hallazgos, o lo dejamos como deep-research archive por ahora?"
 
@@ -315,23 +378,22 @@ Override defaults with flags:
 - `--source=nlm` — NotebookLM only (cheapest, if cost matters)
 - `--source=papers` — add papersflow (for academic topics)
 - `--source=all` — Exa + NLM + papersflow + context7 where applicable
-- `--mode=fast` — NotebookLM fast mode (30s, 10 sources) instead of deep
-- `--model=exa-research` — balanced Exa model instead of `exa-research-pro`
-- `--model=exa-research-fast` — fastest Exa, 15s
+- `--mode=fast` — NotebookLM fast mode (~30s, ~10 sources) instead of deep
+- `--effort=<minimal|low|medium|high|xhigh>` — Exa Agent effort (default `high`)
 - `--no-persist` — skip file persistence, just return findings inline
 - `--slug=<custom>` — override auto-generated slug
 
 ## Edge cases
 
-**Ambiguous query** — if the query is vague ("investiga esto a fondo"), ask ONE clarifying question before firing engines. Don't waste $1.30 on a bad query.
+**Ambiguous query** — if the query is vague ("investiga esto a fondo"), ask ONE clarifying question before firing engines. Don't waste an Exa run (~$0.50 at `effort=high`) on a bad query.
 
 **Missing `.planning/` folder** — fall back to `./deep-research/` at cwd. Don't fail.
 
 **One engine returns empty/error** — proceed with the one that worked. Note the failure under SYNTHESIS.md section "Engines used" with the error message. Do not silently pretend both ran.
 
-**Both engines fail** — abort persistence, tell the user, suggest either `--source=fast`, a more specific query, or manual fallback via `WebSearch` + `WebFetch`.
+**Both engines fail** — abort persistence, tell the user, suggest either `--mode=fast`, a more specific query, or manual fallback via `WebSearch` + `WebFetch` (or parallel research subagents).
 
-**Query involves proprietary/private info** — do NOT send identifying details (internal project names, customer names, secret keys) to Exa/NLM. Both index or cache queries. Anonymize before firing. If the user insists on including private info, warn them first and get explicit consent.
+**Query involves proprietary/private info** — do NOT send identifying details (internal project names, customer names, account numbers, secret keys) to Exa/NLM. Both index or cache queries. Anonymize before firing. If the user insists on including private info, warn them first and get explicit consent.
 
 **Query is about information that changes rapidly** (e.g., "current price of X", "is Y service up") — deep research is wrong tool. Redirect to `WebSearch` or appropriate monitoring MCP.
 

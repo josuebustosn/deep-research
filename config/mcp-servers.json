@@ -2,13 +2,7 @@
   "mcpServers": {
     "exa": {
       "type": "http",
-      "url": "https://mcp.exa.ai/mcp?tools=web_search_exa,web_search_advanced_exa,get_code_context_exa,crawling_exa,company_research_exa,linkedin_search_exa,deep_researcher_start,deep_researcher_check"
-    },
-    "notebooklm-mcp": {
-      "type": "stdio",
-      "command": "notebooklm-mcp",
-      "args": [],
-      "env": {}
+      "url": "https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa,web_search_advanced_exa,get_code_context_exa,agent_run"
     },
     "context7": {
       "type": "http",
