@@ -22,8 +22,8 @@ Un set de **skills + rules + config MCP** para Claude Code que replica la experi
 Tú:  /deep-research investiga Bifrost vs LiteLLM para producción
      │
      ▼
-  Claude dispara en paralelo ─────┬──▶ Exa research-pro ──┐
-                                  │                        ├──▶ SYNTHESIS.md
+  Claude dispara en paralelo ─────┬──▶ Exa agent_run ─────┐
+                                  │  (effort: high)        ├──▶ SYNTHESIS.md
                                   └──▶ NotebookLM deep ────┘    (cross-validated)
      │
      ▼
@@ -31,7 +31,7 @@ Tú:  /deep-research investiga Bifrost vs LiteLLM para producción
   y te da un resumen de 5 líneas con el veredicto.
 ```
 
-**Por qué dos motores en paralelo:** cada uno tiene carácter distinto — Exa es bueno con GitHub issues, threads de comunidad, y citas directas; NotebookLM es bueno con síntesis narrativa y papers. Correr ambos y sintetizar las convergencias atrapa alucinaciones y expande cobertura. El extra de ~$1.30 USD vale 100x lo que cuesta.
+**Por qué dos motores en paralelo:** cada uno tiene carácter distinto — Exa es bueno con GitHub issues, threads de comunidad, y citas directas; NotebookLM es bueno con síntesis narrativa y papers. Correr ambos y sintetizar las convergencias atrapa alucinaciones y expande cobertura. El costo de Exa ahora escala con `effort` en vez de tener un precio fijo por query — el extra (unos pocos dólares en `effort=high`, verifica el precio actual en exa.ai/settings/billing) vale 100x lo que cuesta.
 
 ---
 
@@ -82,7 +82,7 @@ deep-research/
 
 | Servicio | Para qué | Obligatorio | Gratis |
 |---|---|---|---|
-| [Exa](https://exa.ai) | Deep research motor #1 | Sí | Trial, después pay-per-use (~$1.30/query deep) |
+| [Exa](https://exa.ai) | Deep research motor #1 | Sí | Trial, después pay-per-use (`agent_run` escala con `effort`; verifica el precio actual en el dashboard) |
 | Cuenta Google | NotebookLM (motor #2) | Sí | 100% gratis |
 | [Firecrawl](https://firecrawl.dev) | Scraping/crawling de URLs | Sí | Free tier generoso |
 | [Context7](https://context7.com) | Docs de libraries | No (funciona sin cuenta) | Free tier sin auth |
@@ -140,7 +140,7 @@ Abre tu `~/.claude.json` (en Windows: `C:\Users\<usuario>\.claude.json`). Busca 
 
 **Campos a reemplazar:**
 
-- `<TU_FIRECRAWL_API_KEY>` → tu API key de Firecrawl (la consigues en [firecrawl.dev/app/api-keys](https://firecrawl.dev/app/api-keys))
+- `<TU_FIRECRAWL_API_KEY>` → tu API key de Firecrawl (la consigues en [firecrawl.dev/app/api-keys](https://firecrawl.dev/app/api-keys)). Va en el header `Authorization: Bearer <key>`, **no** en la URL — Firecrawl movió la auth de path param a header.
 
 Exa autentica por OAuth al primer request — no necesitas poner key en la URL. NotebookLM usa las cookies que guardó `nlm login`. Context7 y Papersflow funcionan sin auth.
 
@@ -160,7 +160,7 @@ Exa autentica por OAuth al primer request — no necesitas poner key en la URL. 
   "mcpServers": {
     "exa": {
       "type": "http",
-      "url": "https://mcp.exa.ai/mcp?tools=web_search_exa,web_search_advanced_exa,get_code_context_exa,crawling_exa,company_research_exa,linkedin_search_exa,deep_researcher_start,deep_researcher_check"
+      "url": "https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa,web_search_advanced_exa,agent_run"
     },
     "notebooklm-mcp": {
       "type": "stdio",
@@ -172,7 +172,8 @@ Exa autentica por OAuth al primer request — no necesitas poner key en la URL. 
     "papersflow": { "type": "http", "url": "https://doxa.papersflow.ai/mcp" },
     "firecrawl": {
       "type": "http",
-      "url": "https://mcp.firecrawl.dev/<TU_FIRECRAWL_API_KEY>/v2/mcp"
+      "url": "https://mcp.firecrawl.dev/v2/mcp",
+      "headers": { "Authorization": "Bearer <TU_FIRECRAWL_API_KEY>" }
     }
   }
 }
@@ -293,7 +294,7 @@ La skill se dispara automáticamente con cualquiera de estos:
 | `--source=papers` | Agrega papersflow (académico) |
 | `--source=all` | Exa + NLM + papers + context7 |
 | `--mode=fast` | NLM fast mode (30s, 10 fuentes) |
-| `--model=exa-research` | Exa balanced en vez de pro (más barato) |
+| `--effort=medium` | Exa `agent_run` con menos cómputo que el default `high` (más barato) |
 | `--no-persist` | No escribe archivos, solo resumen inline |
 | `--slug=<nombre>` | Override del slug auto-generado |
 
@@ -334,7 +335,7 @@ El skill `deep-research/SKILL.md` de este repo ya maneja esto — si lo ves trun
 <summary><b>Exa retorna "quota exceeded" o "trial ended"</b></summary>
 
 Tu trial de Exa se acabó. Opciones:
-1. Agregar payment en [exa.ai/settings/billing](https://exa.ai/settings/billing) — pay-per-use, research-pro son ~$1.30/query
+1. Agregar payment en [exa.ai/settings/billing](https://exa.ai/settings/billing) — pay-per-use, `agent_run` con `effort=high` cuesta varios dólares por query (el precio exacto escala con effort, verifícalo en el dashboard antes de asumir un número fijo)
 2. Usar `--source=nlm` para correr solo NotebookLM (gratis)
 
 </details>
@@ -380,7 +381,7 @@ Fallback: abre [notebooklm.google.com](https://notebooklm.google.com) en tu brow
 - Context7: **$0** en tier sin auth.
 - Papersflow: **$0** en guest mode.
 - Firecrawl: **$0** en free tier (suficiente para uso personal).
-- Exa: **trial gratis**, después ~$1.30 por query deep-research-pro. Si usas `--source=nlm` queda todo gratis, pero pierdes el cross-validation.
+- Exa: **trial gratis**, después pay-per-use — `agent_run` con `effort=high` cuesta varios dólares por query, escalando con el `effort` elegido (precio exacto en exa.ai/settings/billing). Si usas `--source=nlm` queda todo gratis, pero pierdes el cross-validation.
 
 **¿Por qué no usar solo el `WebSearch` nativo de Claude Code?**
 

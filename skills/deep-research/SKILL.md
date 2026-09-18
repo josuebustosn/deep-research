@@ -37,14 +37,14 @@ Each engine alone returns useful output. **Running two in parallel and synthesiz
 
 Per-engine character (matters for dispatch):
 
-- **Exa `research-pro`** — strong on GitHub issues, community threads, provider docs, specific URLs. Returns structured tables with direct citations. Best when the user wants "what's the evidence?"
+- **Exa `agent_run` (effort: high)** — strong on GitHub issues, community threads, provider docs, specific URLs. Returns structured tables with direct citations. Best when the user wants "what's the evidence?"
 - **NotebookLM `deep`** — strong on narrative synthesis, theoretical mechanisms, academic papers, benchmark numbers, *why* something happens. Returns analyst-style long-form. Best when the user wants "help me understand?"
 - **papersflow** — academic papers only. Narrow but deep.
 - **context7** — official library docs. For API specifics, not research.
 
 ## Engine dispatch
 
-**Default for any "deep research" request:** Exa `research-pro` + NotebookLM `deep` in parallel. Extra cost (~$1.30) is trivial vs. the value of cross-validation.
+**Default for any "deep research" request:** Exa `agent_run` (effort: high) + NotebookLM `deep` in parallel. Exa's cost now scales with `effort` rather than a fixed per-query price — check current pricing at exa.ai/settings/billing before assuming it's still ~$1.30; either way it's trivial vs. the value of cross-validation.
 
 Override or expand based on query type:
 
@@ -54,8 +54,8 @@ Override or expand based on query type:
 | Specific library/framework/SDK name (React, Next.js, Django, AWS Lambda...) | Try context7 first via find-docs; fallback to default if insufficient |
 | "benchmark", "SOTA", "compare models", "which is best", "landscape" | Default (the bread-and-butter case) |
 | "community reports", "Reddit discussions", "production experience", "real-world issues" | Default — but Exa is primary (better GitHub issues coverage) |
-| "market", "pricing", "providers", "competitive analysis" | Default + consider Exa's `company_research_exa` |
-| Query mentions a specific person/founder/company | Default + consider Exa's `linkedin_search_exa` |
+| "market", "pricing", "providers", "competitive analysis" | Default — frame the `agent_run` query as company/market research; Exa retired the dedicated `company_research_exa` tool, this capability now lives inside `agent_run` |
+| Query mentions a specific person/founder/company | Default — frame the `agent_run` query to ask for that person/company explicitly; Exa retired the dedicated `linkedin_search_exa` tool, `agent_run` covers it via `dataSources`/plain query framing |
 
 If the user provides a flag like `--source=exa`, `--source=nlm`, `--source=all`, honor it.
 
@@ -100,9 +100,9 @@ Use `Glob` to check for `.planning/` in the current working directory. If found,
 
 Engines respond better to different prompt styles. Adapt the user's intent into the right format for each.
 
-### Exa `deep_researcher_start`
+### Exa `agent_run`
 
-Exa likes **structured, explicit instructions**. Template:
+Exa retired the old `deep_researcher_start`/`deep_researcher_check` pair — deep research now runs through the general-purpose `agent_run` tool (`query` + optional `systemPrompt`, `outputSchema`, `dataSources`, `previousRunId`, `effort`, `budget.maxCostDollars`). Exa likes **structured, explicit instructions** in `query`. Template:
 
 ```
 <THE RESEARCH QUESTION IN ONE LINE>
@@ -125,7 +125,7 @@ OUTPUT FORMAT: <describe the ideal structure — table by item with columns X/Y/
 synthesis with ranking, concrete evidence bullets>
 ```
 
-Use `model=exa-research-pro` by default. Fall back to `exa-research` (balanced, 15-45s) if the user wants faster/cheaper, or `exa-research-fast` for simple queries.
+Use `effort=high` by default. Drop to `effort=medium` if the user wants faster/cheaper, `effort=xhigh` (beta, `effort=max`) for the hardest comparisons, and `effort=minimal`/`low` for simple queries. For a follow-up on the same investigation, pass `previousRunId` instead of re-sending full context. Check the live tool schema in your client for the exact current parameter set — this changes without notice on Exa's side.
 
 ### NotebookLM `research_start`
 
@@ -157,9 +157,9 @@ Only for library API / framework documentation. Not general research.
 
 ### Polling strategy
 
-- **Exa:** `deep_researcher_check` returns instantly with current status. Poll every ~40 seconds (inside the 5-min prompt cache window). Research-pro takes 45s to 3 min typically.
+- **Exa:** `agent_run` returns immediately with `status: "queued"` and a run id, moving to `running` once it starts. Poll roughly every ~40 seconds (inside the 5-min prompt cache window) until a terminal state (`completed`, `failed`, `cancelled`). `completed` carries `output.text`, `output.structured` (if `outputSchema` was set), and `output.grounding` (citations). `effort=high` typically takes 45s to 3 min.
 - **NotebookLM:** `research_status` with `max_wait=180` blocks server-side for up to 3 minutes polling internally — this is MORE efficient than local polling, since it holds the connection open. In `deep` mode, the task_id may change partway through the run — always pass `query` as fallback for task matching per the MCP docs.
-- **Ideal pattern:** fire both checks in the same message. NLM blocks up to 180s; Exa returns instant status. If Exa not done when NLM returns, do another pair.
+- **Ideal pattern:** fire both checks in the same message. NLM blocks up to 180s; Exa's `agent_run` status check returns near-instantly. If Exa not done when NLM returns, do another pair.
 
 ### CRITICAL: compact mode trap
 
@@ -179,10 +179,10 @@ Write four files to `<workspace>/<date>-<slug>/`:
 Header block:
 
 ```markdown
-# Exa research-pro Report — <Title>
+# Exa agent_run Report — <Title>
 
-**Engine:** Exa Deep Researcher (`<model>`)
-**Research ID:** <researchId>
+**Engine:** Exa `agent_run` (effort: `<effort>`)
+**Run ID:** <runId>
 **Date:** <YYYY-MM-DD>
 **Duration:** ~<N> minutes
 **Cost:** $<X.XX> USD
@@ -316,8 +316,8 @@ Override defaults with flags:
 - `--source=papers` — add papersflow (for academic topics)
 - `--source=all` — Exa + NLM + papersflow + context7 where applicable
 - `--mode=fast` — NotebookLM fast mode (30s, 10 sources) instead of deep
-- `--model=exa-research` — balanced Exa model instead of `exa-research-pro`
-- `--model=exa-research-fast` — fastest Exa, 15s
+- `--effort=medium` — cheaper/faster Exa `agent_run` than the default `high`
+- `--effort=minimal` / `--effort=low` — fastest Exa, for simple queries
 - `--no-persist` — skip file persistence, just return findings inline
 - `--slug=<custom>` — override auto-generated slug
 
